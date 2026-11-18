@@ -315,7 +315,7 @@ select,input[type=number],input[type=text],textarea{border-color:#9db8ab;backgro
 .fs-status{font-weight:700;color:var(--muted);font-size:.9rem}
 .fs-status.ok{color:var(--ok)}.fs-status.bad{color:var(--bad)}
 </style>
-</head>
+<script src="/_aistudio-iframe.js?v=1f94f900"></script></head>
 <body>
 <div class="wrap">
 
@@ -563,14 +563,6 @@ select,input[type=number],input[type=text],textarea{border-color:#9db8ab;backgro
     <button class="btn btn-gold" onclick="createClass()">➕ إنشاء صف</button>
     <button class="btn btn-green" id="save-class-btn" onclick="saveClassToProgram()" title="يحفظ جميع الصفوف (بطلابها ودرجاتها) داخل ملف البرنامج نفسه">💾 حفظ الصف</button>
     <button class="btn btn-green" id="save-scores-btn" onclick="saveScoresToProgram()" title="يحفظ جميع الصفوف بدرجاتها الحالية داخل ملف البرنامج نفسه">🏅 حفظ الدرجات</button>
-  </div>
-
-  <div class="sync-row cloud-row" id="cloud-row" style="display:flex">
-    <input type="text" id="cloud-code" placeholder="كود الحفظ السحابي (اختر كلمة سر طويلة)" autocomplete="off" style="flex:1;min-width:200px">
-    <button class="btn btn-gold" id="cloud-link-btn" onclick="cloudLink()">☁️ ربط الحفظ السحابي</button>
-    <button class="btn btn-green" id="cloud-refresh-btn" onclick="cloudPull(true)" style="display:none">🔄 تحديث من السحابة</button>
-    <button class="btn btn-red" id="cloud-unlink-btn" onclick="cloudUnlink()" style="display:none">⛔ فك الربط</button>
-    <span class="fs-status" id="cloud-status"></span>
   </div>
 
   <div class="sync-row" id="fs-row" style="display:none">
@@ -4579,8 +4571,8 @@ const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'
 const rnd=a=>a[Math.floor(Math.random()*a.length)];
 const shuffle=a=>a.sort(()=>Math.random()-.5);
 
-function save(){try{localStorage.setItem(STORE_KEY,JSON.stringify({classes,activeClassId}))}catch(e){} fsSchedule(); cloudSchedule();}
-function saveCustom(){try{localStorage.setItem(CUSTOM_KEY,JSON.stringify(custom))}catch(e){} fsSchedule(); cloudSchedule();}
+function save(){try{localStorage.setItem(STORE_KEY,JSON.stringify({classes,activeClassId}))}catch(e){} fsSchedule();}
+function saveCustom(){try{localStorage.setItem(CUSTOM_KEY,JSON.stringify(custom))}catch(e){} fsSchedule();}
 function loadState(){
   try{
     const d=JSON.parse(localStorage.getItem(STORE_KEY)||'null');
@@ -5674,113 +5666,6 @@ async function fsInit(){
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)fsCheck();});
 }
 
-
-/* ==========================================================
-   الحفظ السحابي (Firebase Firestore) — يعمل من أي جهاز ومتصفح
-   ========================================================== */
-const firebaseConfig = {
-  apiKey: "AIzaSyCVgen_ERo2r_igwMDv41FdAg40wIAx1Gg",
-  authDomain: "quran-karem-9efc8.firebaseapp.com",
-  projectId: "quran-karem-9efc8",
-  storageBucket: "quran-karem-9efc8.firebasestorage.app",
-  messagingSenderId: "406340078861",
-  appId: "1:406340078861:web:a1cae8ab33e52a053cb444",
-  measurementId: "G-QE7XDM03HR"
-};
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
-}
-function cloudUrl(code){
-  return 'https://firestore.googleapis.com/v1/projects/'+encodeURIComponent(CLOUD_CFG.projectId)+
-    '/databases/(default)/documents/teachers/'+encodeURIComponent(code)+'?key='+encodeURIComponent(CLOUD_CFG.apiKey);
-}
-async function cloudFetch(){
-  const r=await fetch(cloudUrl(cloudCode));
-  if(r.status===404)return null;
-  if(!r.ok)throw new Error('HTTP '+r.status);
-  const j=await r.json();
-  const s=j&&j.fields&&j.fields.data&&j.fields.data.stringValue;
-  return s?JSON.parse(s):null;
-}
-async function cloudPush(){
-  cloudTimer=null;
-  if(!cloudCode)return;
-  if(cloudBusy){cloudTimer=setTimeout(cloudPush,700);return;}
-  cloudBusy=true;
-  try{
-    const savedAt=Date.now();
-    const data=JSON.stringify({app:'quran_contest',version:1,savedAt,classes,activeClassId,custom});
-    const r=await fetch(cloudUrl(cloudCode),{method:'PATCH',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({fields:{data:{stringValue:data},savedAt:{integerValue:String(savedAt)}}})});
-    if(!r.ok)throw new Error('HTTP '+r.status);
-    cloudTs=savedAt; cloudDirty=false;
-    try{localStorage.setItem(CLOUD_TS_KEY,String(cloudTs));}catch(e){}
-    cloudSetStatus('☁️✅ تم الحفظ في السحابة '+fsNow(),'ok');
-  }catch(e){
-    cloudDirty=true;
-    cloudSetStatus('⚠️ تعذّر الحفظ في السحابة — تأكد من الإنترنت (سيُعاد المحاولة)','bad'); console.error(e);
-    clearTimeout(cloudTimer); cloudTimer=setTimeout(cloudPush,15000);
-  }finally{cloudBusy=false;}
-}
-function cloudSchedule(){
-  if(!cloudCode||fsApplying||cloudApplying)return;
-  cloudDirty=true;
-  clearTimeout(cloudTimer);
-  cloudTimer=setTimeout(cloudPush,800);
-  cloudSetStatus('⏳ جارٍ الحفظ في السحابة…','');
-}
-let cloudApplying=false;
-async function cloudPull(manual){
-  if(!cloudCode||cloudBusy||cloudTimer||cloudDirty&&!manual)return;
-  try{
-    const d=await cloudFetch();
-    if(!d||!Array.isArray(d.classes)){await cloudPush();return;}
-    if(manual||d.savedAt>cloudTs){
-      cloudApplying=true;
-      try{fsApply(d);}finally{cloudApplying=false;}
-      cloudTs=d.savedAt; try{localStorage.setItem(CLOUD_TS_KEY,String(cloudTs));}catch(e){}
-      cloudSetStatus((manual?'🔄 تم التحديث من السحابة ':'🔄 تم تحديث البيانات من جهاز آخر ')+fsNow(),'ok');
-    }else if(!cloudDirty){cloudSetStatus('☁️✅ متزامن مع السحابة '+fsNow(),'ok');}
-  }catch(e){cloudSetStatus('⚠️ تعذّر الاتصال بالسحابة','bad');console.error(e);}
-}
-async function cloudLink(){
-  if(!cloudConfigured()){alert('لم يتم إدخال إعدادات Firebase داخل الملف بعد. اتبع خطوات الإعداد ثم ضع apiKey و projectId في أول قسم «الحفظ السحابي».');return;}
-  const code=(cEl('cloud-code').value||'').trim();
-  if(code.length<6){alert('اكتب كود حفظ لا يقل عن 6 أحرف (يفضّل كلمة سر طويلة يصعب تخمينها). استخدم نفس الكود على كل أجهزتك.');return;}
-  cloudCode=code; cloudTs=0;
-  try{localStorage.setItem(CLOUD_CODE_KEY,code);localStorage.removeItem(CLOUD_TS_KEY);}catch(e){}
-  cloudUi(); cloudSetStatus('⏳ جارٍ الاتصال…','');
-  try{
-    const d=await cloudFetch();
-    if(d&&Array.isArray(d.classes)&&d.classes.length){
-      if(!classes.length||confirm('يوجد بيانات محفوظة في السحابة بهذا الكود. هل تريد تحميلها واستبدال ما في هذا الجهاز؟\n(إلغاء = رفع بيانات هذا الجهاز إلى السحابة بدلاً منها)')){
-        cloudApplying=true; try{fsApply(d);}finally{cloudApplying=false;}
-        cloudTs=d.savedAt; try{localStorage.setItem(CLOUD_TS_KEY,String(cloudTs));}catch(e){}
-        cloudSetStatus('✅ تم تحميل بياناتك من السحابة '+fsNow(),'ok'); return;
-      }
-    }
-    await cloudPush();
-  }catch(e){cloudSetStatus('⚠️ تعذّر الاتصال بالسحابة — راجع الإعدادات والإنترنت','bad');console.error(e);}
-}
-function cloudUnlink(){
-  if(!confirm('فك الربط بالسحابة على هذا الجهاز؟ ستبقى بياناتك في السحابة.'))return;
-  clearTimeout(cloudTimer); cloudTimer=null; cloudCode=''; cloudTs=0; cloudDirty=false;
-  try{localStorage.removeItem(CLOUD_CODE_KEY);localStorage.removeItem(CLOUD_TS_KEY);}catch(e){}
-  cloudUi(); cloudSetStatus('');
-}
-function cloudInit(){
-  try{cloudCode=localStorage.getItem(CLOUD_CODE_KEY)||'';cloudTs=+(localStorage.getItem(CLOUD_TS_KEY)||0);}catch(e){}
-  cloudUi();
-  if(!cloudCode){if(!cloudConfigured())cloudSetStatus('الحفظ السحابي غير مفعّل بعد (ضع إعدادات Firebase)','');return;}
-  cloudPull(false);
-  setInterval(()=>cloudPull(false),45000);
-  window.addEventListener('focus',()=>cloudPull(false));
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden)cloudPull(false);});
-  window.addEventListener('online',()=>{if(cloudDirty)cloudPush();});
-}
-
 /* ========== التشغيل ========== */
 loadState();
 loadEmbedded();
@@ -5788,7 +5673,6 @@ renderAll();
 initSurahDropdown();
 loadCustomVerses();
 fsInit();
-cloudInit();
 </script>
 </body>
 </html>
